@@ -1,9 +1,18 @@
 
-# Cross-Origin Service Worker (DRAFT)
+# Cross-Origin Service Workers (DRAFT)
 
 This proposal is an extension of [Service Workers](http://slightlyoff.github.io/ServiceWorker/spec/service_worker/)
 which allows pages to access service workers registered by pages in different origins.
 This proposal aims to be unified into the Service Workers standard.
+
+## Motivation
+
+Service Workers standard doesn't allow third-parties to control its data.
+For example, it is not possible to build "Facebook SDK with offline support" with allows offline-like with sync support, authentication without redirect, etc.
+
+This is because there is no way to provide for these third parties to provide service workers.
+The only way to do is let first party worker to handle all of data access.
+Finer level, control is desirable in some cases. This is what "Cross-Origin Service Workers" aims to address.
 
 ## Concepts
 
