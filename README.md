@@ -28,7 +28,11 @@ By default, services workers aren't avaialbe through the discovery process. They
 
 ## ServiceWorkerContainer Extension
 
+With Cross-Origin Service Workers, `ServieWorkerContainer` has`discover()` function to request
+to an already registered service worker, including one in a different domain.
+
 ```
+// This is a ServiceWorkerRegistration equivalent with limited capability.
 [Exposed=Window]
 interface ServiceWorkerDiscovery : EventTarget {
   [Unforgeable] readonly attribute ServiceWorker? active;
@@ -44,6 +48,9 @@ partial interface ServiceWorkerContainer {
 
 ## ServiceWorkerGlobalScope Extension
 
+With Cross-Origin Service Workers, each service worker can publish it to pages on other domains though 'publish()',
+and also can dismiss its discoverability through 'unpublish()' call.
+
 ```
 partial interface ServiceWorkerGlobalScope {
   Promise<boolean> publish();
@@ -53,7 +60,17 @@ partial interface ServiceWorkerGlobalScope {
 
 ## Foreign instance of ServiceWorker
 
-## Foreign instance of ServiceWorkerClient
+Foreign instance of ServiceWorker is a [ServiceWorker](https://slightlyoff.github.io/ServiceWorker/spec/service_worker/#service-worker-interface) whose 
+domain is not same as the page. The foreign instance is retrieved by the 'discover()' function.
+
+ * TBD: Some of the API should be inert.
+
+## Foreign instance of ServiceWorkerClient for security reasons
+
+Foreign instance of ServiceWorkerClient is a [ServiceWorkerClient](https://slightlyoff.github.io/ServiceWorker/spec/service_worker/#service-worker-client)
+whose domain is not same as the service worker.
+
+ * TBD: Some of the API should be inert for security reasons.
 
 ## Design Considerations
 
