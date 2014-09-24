@@ -3,7 +3,9 @@
 
 This proposal is an extension of [Service Workers](http://slightlyoff.github.io/ServiceWorker/spec/service_worker/)
 which allows pages to access service workers registered by pages in different origins.
-This proposal aims to be unified into the Service Workers standard.
+This "Cross-Origin Service Workers" (COSW) proposal aims to be unified into the Service Workers standard.
+
+Note: This is a retake of @dglazkov's [Tubes](https://github.com/dglazkov/tubes) proposal.
 
 ## Motivation
 
@@ -16,63 +18,100 @@ Finer level, control is desirable in some cases. This is what "Cross-Origin Serv
 
 ## Concepts
 
-A *discovery* may let pages access to an already installed service worker that has given script URL, even if the worker is not installed by the page.
-If the discovery requests a script of the same origin as one of the requesting page, it may return a service worker that has requried URL.
-Otherwise, the *discovery* process reuqests a *grant*. Once it is *granted*, it may return a *foreign instance* to the matched service worker
-so that a limited set of functionality of the service worker is available to the page.
+A *connection* may let pages access to an already installed service worker that has given script URL, even if the worker is not installed by the page.
+If the connection requests a script of the same origin as one of the requesting page, it may return a service worker that has requried URL.
+Otherwise, the *connection* needs an *acceptance* of the service worker script.
 
-From the service worker's perspective, a page requesting the access through the discovery is accessible as a *foreign instance*. 
-Similar to foreign proxies, a foreign client lets the worker to access a limited set of information of the accessing page.
+From the service worker's perspective, the connection request is notified through an `connect` event.
+Once the service worker *accepted* the connection, a *foreign instance* of a `ServiceWorkerClient` becomes accessible.
+A foreign instance of a client lets the worker to access a limited set of information of the connecting page.
 
-By default, services workers aren't avaialbe through the discovery process. They become available only if they *publish* themselves.
+## Navigator Extension
 
-## ServiceWorkerContainer Extension
+`Navigator.connect()` requests a connection to a service worker on given `url`.
+nn
+```
+partial interface Navigator {
+  Promise<MessagePort> connect(ScalarValueString url, any request);
+};
+```
 
-With Cross-Origin Service Workers, `ServieWorkerContainer` has`discover()` function to request
-to an already registered service worker, including one in a different domain.
+ * ISSUE: Specify the algorithm that matches `url` to registered servicveworkers. The URL matching criterial should be consistent with 
+   how Service Workers spec decide [controlling](https://slightlyoff.github.io/ServiceWorker/spec/service_worker/#dfn-document-control) worker.
+ * ISSUE: List the type of possible errors.
+ * ISSUE: We might want to have `ServiceWorker` or its subset so that the page can detect workers being gone.
+ * QUESTION: Should the return value `MessagePort` or something more indirect like `ServiceWorkerRegistration` ?
+ * QUESTION: Do we need the `request` parameter or should be just let peers to use given `MessagePort`?
+   It adds extra complexity. On the other hand, it will expose the fact that the user has visited the site if we allow service to be connected without any authentication.
+ * QUESTION: Do we need any ways to enumerate connected service workers?
+
+
+Example: Requesting a connection
 
 ```
-// This is a ServiceWorkerRegistration equivalent with limited capability.
-[Exposed=Window]
-interface ServiceWorkerDiscovery : EventTarget {
-  [Unforgeable] readonly attribute ServiceWorker? active;
-
-  // event
-  attribute EventHandler onupdatefound;
-};
-
-partial interface ServiceWorkerContainer {
-  Promise<ServiceWorkerDiscovery> discover(ScalarValueString scriptURL);
-}
+navigator.connect('//example.com/', { 'apiKey': '...', 'cred': '....' }).then(
+  function(port) {
+    port.postMessage("Hello!");
+  },
+  function(why) {
+    console.log("Failed to connect example.com because: ", why);
+  }
+);
 ```
 
 ## ServiceWorkerGlobalScope Extension
 
-With Cross-Origin Service Workers, each service worker can publish it to pages on other domains though 'publish()',
-and also can dismiss its discoverability through 'unpublish()' call.
+A service worker may accept connection request through `onconnect` event.
+The `onconnect` event is a lifecycle event of the 'ServiceWorker' which is called when the page invokes `connect()`.
+It handles `ConnectionEvent`, a subtype of [ExtendableEvent](https://slightlyoff.github.io/ServiceWorker/spec/service_worker/#extendable-event-interface). 
 
 ```
+interface ForeignServiceWorkerClient {
+  readonly attribute ScalarValueString url;
+  readonly attribute MessagePort port;
+};
+
+interface ConnectionEvent extends ExtendableEvent {
+  readonly attribute ForeignServiceWorkerClient client;
+  readonly attribute any request;
+};
+
 partial interface ServiceWorkerGlobalScope {
-  Promise<boolean> publish();
-  Promise<boolean> unpublish();
-}
+  // event
+  attribute EventHandler onconnect;
+};
 ```
 
-## Foreign instance of ServiceWorker
+Example: Accepting a connection
 
-Foreign instance of ServiceWorker is a [ServiceWorker](https://slightlyoff.github.io/ServiceWorker/spec/service_worker/#service-worker-interface) whose 
-domain is not same as the page. The foreign instance is retrieved by the 'discover()' function.
+```
+onconnect = function(e) {
+  e.waitUntil(new Promise(resolve, reject) {
+    var req = new XMLHttpRequest();
+    req.open('GET', myBuildQuery({ pageURL: e.client.url, apiKey: e.request.apiKey, credentials: e.request.cred }));
+    req.onload = function() {
+      if (req.status != 200) {
+        return reject(Error("Some Error"));
+      }
 
- * TBD: Some of the API should be inert.
+      resolve(); // The resolved value doesn't matter.
+      e.client.port.postMessage({ type: 'connected', payload: req.response });
+    };
 
-## Foreign instance of ServiceWorkerClient for security reasons
+    req.onerror = function() {
+      reject(Error("Network Error"));
+    };
 
-Foreign instance of ServiceWorkerClient is a [ServiceWorkerClient](https://slightlyoff.github.io/ServiceWorker/spec/service_worker/#service-worker-client)
-whose domain is not same as the service worker.
+    req.send();
+  });
+};
+```
 
- * TBD: Some of the API should be inert for security reasons.
-
-## Design Considerations
-
- * How and who should give the grant to the page?
- * Should we provide inter-worker communication API?
+ * ISSUE: The lifecycle of Service Worker should be clearer.
+   * For example, what happens if the worker suspended/updated? Is re-`connect()` required then?
+ * QUESTION; Do we need 'ForeignServiceWorkerClient' or is it sufficient to use `MesssagePort` directly?
+ * QUESTION: Do we need any ways to enumerate `ForeignServiceWorkerClient` ?
+ * QUESTION: Should `ForeignServiceWorkerClient` be strict subset of `ServiceWorkerClient` ?
+ * QUESTION: Should the message arrive to `ForeignServiceWorkerClient.port`, or global `onmessage` handler?
+ * QUESTION: Do we need any ways to "disconnect"? Should `ForeignServiceWorkerClient.port.close` work?
+   If so, how does the client (connecting page) know that? `MessagePort` apparently doesn't provide such an API.
